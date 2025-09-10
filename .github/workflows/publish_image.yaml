@@ -1,4 +1,4 @@
-name: Publish image on commit or published release
+name: Build image, test it, and publish if it passes
 
 on:
   push:
@@ -15,43 +15,50 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
 
       - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v1
+        uses: docker/setup-buildx-action@v3
 
       - name: Login to GitHub Container Registry
-        uses: docker/login-action@v1
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
           password: ${{ github.token }}
 
-      - name: Set tag name for releases
-        if: ${{ github.event_name == 'release' }}
-        run: echo "TAG=ghcr.io/${GITHUB_REPOSITORY,,}:${GITHUB_REF##*/}" >>${GITHUB_ENV}
+      - name: Extract Python version from Dockerfile
+        id: python_version
+        run: |
+          PYTHON_VER=$(grep -oP '^FROM python:\K[0-9]+\.[0-9]+\.[0-9]+' Dockerfile | head -1)
+          echo "PYTHON_VERSION=$PYTHON_VER" >> $GITHUB_ENV
 
-      - name: Set tag name for commits
-        if: ${{ github.event_name == 'push' }}
-        run: echo "TAG=ghcr.io/${GITHUB_REPOSITORY,,}:${{ github.sha }}" >>${GITHUB_ENV}
+      - name: Set Docker image tags
+        run: |
+          IMAGE_BASE="ghcr.io/${GITHUB_REPOSITORY,,}"
+          if [[ "${GITHUB_EVENT_NAME}" == "release" ]]; then
+            SHA_TAG="${IMAGE_BASE}:${GITHUB_REF##*/}-python${PYTHON_VERSION}"
+          else
+            SHA_TAG="${IMAGE_BASE}:${GITHUB_SHA}-python${PYTHON_VERSION}"
+          fi
+          LATEST_TAG="${IMAGE_BASE}:latest"
+          echo "TAGS=$SHA_TAG $LATEST_TAG" >> $GITHUB_ENV
 
-      - name: Build image
-        uses: docker/build-push-action@v2
-        with:
-          load: true
-          push: false
-          tags: ${{ env.TAG }}
+      - name: Build Docker image
+        run: docker build -t ${{ env.TAGS }} .
 
       - name: Test image
         run: |
-          docker run ${{ env.TAG }} /bin/sh -c "\
-          python -m pip install --upgrade pip && \
-          pip install -r requirements.txt && \
-          pip install -r requirements-test.txt && \
-          pytest"
+          # Test the first tag (SHA/Python tag)
+          FIRST_TAG=$(echo ${{ env.TAGS }} | awk '{print $1}')
+          docker run --rm $FIRST_TAG /bin/sh -c "\
+            python -m pip install --upgrade pip && \
+            pip install -r requirements-test.txt && \
+            pytest"
 
-      - name: Push image to registry
-        uses: docker/build-push-action@v2
+      - name: Push Docker image
+        uses: docker/build-push-action@v3
         with:
           push: true
-          tags: ${{ env.TAG }}
+          tags: ${{ env.TAGS }}
+          load: false
