@@ -59,8 +59,12 @@ jobs:
             pytest"
 
       - name: Push Docker image
-        uses: docker/build-push-action@v3
-        with:
-          push: true
-          tags: ${{ env.TAGS }}
-          load: false
+        run: |
+          # Convert TAGS (space-separated) into an array
+          TAG_ARRAY=($TAGS)
+
+          # Loop over each tag and push individually
+          for tag in "${TAG_ARRAY[@]}"; do
+            echo "Pushing $tag"
+            docker push "$tag"
+          done
