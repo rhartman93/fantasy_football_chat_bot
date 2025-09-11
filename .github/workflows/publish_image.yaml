@@ -45,7 +45,10 @@ jobs:
           echo "TAGS=$SHA_TAG $LATEST_TAG" >> $GITHUB_ENV
 
       - name: Build Docker image
-        run: docker build -t ${{ env.TAGS }} .
+        run: docker build -t ${GITHUB_REPOSITORY,,}:${GITHUB_SHA}-python${PYTHON_VERSION} \
+             -t ${GITHUB_REPOSITORY,,}:latest \
+             .
+
 
       - name: Test image
         run: |
